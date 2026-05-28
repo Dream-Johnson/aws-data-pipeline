@@ -22,34 +22,34 @@ This project rebuilds a SQL Server Medallion Architecture data warehouse on AWS,
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        EVENT TRIGGER                                │
-│                                                                     │
-│   CSV Upload ──► S3 Bronze ──► S3 Event Notification               │
-│                                       │                             │
-│                                       ▼                             │
-│                                  AWS Lambda                         │
-│                              (pipeline trigger)                     │
-│                                       │                             │
-│                                       ▼                             │
-│                             AWS Step Functions                      │
-│                             (pipeline orchestrator)                 │
-│                                       │                             │
-│              ┌────────────────────────┼────────────────────────┐   │
-│              ▼                        ▼                        ▼   │
-│         Glue Job 1              Glue Job 2               Glue Job 3 │
+┌───────────────────────────────────────────────────────────────────── ┐
+│                        EVENT TRIGGER                                 │
+│                                                                      │
+│   CSV Upload ──► S3 Bronze ──► S3 Event Notification                 │
+│                                       │                              │
+│                                       ▼                              │
+│                                  AWS Lambda                          │
+│                              (pipeline trigger)                      │
+│                                       │                              │
+│                                       ▼                              │
+│                             AWS Step Functions                       │
+│                             (pipeline orchestrator)                  │
+│                                       │                              │
+│              ┌────────────────────────┼────────────────────────┐     │
+│              ▼                        ▼                        ▼     │
+│         Glue Job 1              Glue Job 2               Glue Job 3  │
 │       Bronze → Silver         Silver Transform          Silver → Gold│
 │    (CSV to Parquet)           (clean & enrich)         (star schema) │
-│              │                        │                        │   │
-│              ▼                        ▼                        ▼   │
-│         S3 Silver               S3 Silver               S3 Gold    │
-│                                                               │     │
-│                                                               ▼     │
-│                                                      Glue Data Catalog│
-│                                                               │     │
-│                                                               ▼     │
+│              │                        │                        │     │
+│              ▼                        ▼                        ▼     │
+│         S3 Silver               S3 Silver               S3 Gold      │
+│                                                               │      │
+│                                                               ▼      │
+│                                                     Glue Data Catalog│
+│                                                               │      │
+│                                                               ▼      │
 │                                                        Amazon Athena │
-│                                                     (SQL on Gold layer)│
+│                                                   (SQL on Gold layer)│
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
