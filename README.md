@@ -103,7 +103,7 @@ CRM System                    ERP System
 
 ## AI Diagnostic Agent
 
-An event-driven AI agent that activates automatically when any Glue job fails. It fetches the CloudWatch error logs, sends them to Claude (Anthropic API) for analysis, and delivers a plain-English diagnosis with a suggested fix directly to the engineer's inbox via SNS — reducing mean time to resolution from 20-30 minutes of manual log investigation to under 30 seconds.
+An event-driven AI agent that activates automatically when any Glue job fails. It fetches the CloudWatch error logs, sends them to Claude (Anthropic API) for analysis, and delivers a plain-English diagnosis with a suggested fix directly to the engineer's inbox via SNS - reducing mean time to resolution from 20-30 minutes of manual log investigation to under 30 seconds.
 
 ### How It Works
 
@@ -119,33 +119,35 @@ Glue job fails
     → Step Functions marks execution as PipelineFailed
 ```
 
-### Pipeline Failure — Agent Triggered
+### Pipeline Failure - Agent Triggered
 
 **Step 1:** `RunBronzeToSilver` succeeds (green). `RunSilverTransform` hits a `KeyError: 'cid'` bug and fails (yellow). The Catch block routes execution to `InvokeDiagnosticAgent`.
 
 ![Pipeline Failure](images/pipeline_failure.png)
 
-**Step 2:** The diagnostic agent Lambda runs successfully (green) — it fetched the CloudWatch logs, called Claude, and sent the email.
+**Step 2:** The diagnostic agent Lambda runs successfully (green) - it fetched the CloudWatch logs, called Claude, and sent the email.
 
 ![Agent Success](images/agent_success.png)
 
-### CloudWatch Logs — The Evidence Claude Read
+### CloudWatch Logs - The Evidence Claude Read
 
-The actual Python traceback from `/aws-glue/python-jobs/error` — showing `KeyError: 'cid'` in `silver.erp_cust_az12`. This is what the agent fed to Claude.
+The actual Python traceback from `/aws-glue/python-jobs/error` - showing `KeyError: 'cid'` in `silver.erp_cust_az12`. This is what the agent fed to Claude.
 
 ![CloudWatch Logs](images/cloudwatch_logs.png)
 
-### Email Notification — Diagnosis Delivered
+### Email Notification - Diagnosis Delivered
 
 The SNS email arriving in the engineer's inbox within 30 seconds of the failure.
 
 ![Email Notification](images/email_notification.png)
 
-### Full AI Diagnosis — Claude's Response
+### Full AI Diagnosis - Claude's Response
 
 Claude correctly identified the root cause: the ERP Parquet file has uppercase column names (`CID`) but the transform function expects lowercase (`cid`). It pointed to the exact table, suggested checking for case sensitivity, and confirmed the pipeline is safe to re-run after fixing the column normalisation.
 
 ![AI Diagnosis Email](images/ai_diagnosis_email.png)
+
+![AI Diagnosis Email Continued](images/ai_diagnosis_email_cont.png)
 
 ### Agent Tech Stack
 
@@ -200,7 +202,7 @@ Six source tables from two systems:
 ## Transformations
 
 ### Bronze → Silver (`bronze_to_silver.py`)
-Reads raw CSVs from S3 Bronze and writes Parquet to S3 Silver with no transformation — a faithful landing of source data.
+Reads raw CSVs from S3 Bronze and writes Parquet to S3 Silver with no transformation - a faithful landing of source data.
 
 ### Silver Transform (`silver_transform.py`)
 Applies all data quality and enrichment logic:
@@ -212,12 +214,12 @@ Applies all data quality and enrichment logic:
 | `crm_sales_details` | Parse integer dates (`YYYYMMDD → date`), nullify invalid values; recalculate `sls_sales` when inconsistent with `qty × price` |
 | `erp_cust_az12` | Strip `NAS` prefix from customer IDs; nullify future birth dates; normalize gender strings |
 | `erp_loc_a101` | Remove `-` from customer IDs; normalize country codes (`DE→Germany`, `US/USA→United States`) |
-| `erp_px_cat_g1v2` | Passthrough — no transformation required |
+| `erp_px_cat_g1v2` | Passthrough - no transformation required |
 
 ### Silver → Gold (`silver_to_gold_s3.py`)
 Builds the star schema via pandas joins, generates surrogate keys, and registers tables in Glue Data Catalog:
 
-**`dim_customers`** — CRM + ERP join
+**`dim_customers`** - CRM + ERP join
 ```
 crm_cust_info  LEFT JOIN  erp_cust_az12  ON cst_key = cid   (birthdate, gender fallback)
                LEFT JOIN  erp_loc_a101   ON cst_key = cid   (country)
@@ -225,14 +227,14 @@ crm_cust_info  LEFT JOIN  erp_cust_az12  ON cst_key = cid   (birthdate, gender f
 - Surrogate key: `ROW_NUMBER() ORDER BY cst_id`
 - Gender resolution: CRM is authoritative; falls back to ERP when CRM value is `n/a`
 
-**`dim_products`** — Products + Categories join
+**`dim_products`** - Products + Categories join
 ```
 crm_prd_info  LEFT JOIN  erp_px_cat_g1v2  ON cat_id = id
 WHERE prd_end_dt IS NULL   -- current/active products only
 ```
 - Surrogate key: `ROW_NUMBER() ORDER BY prd_start_dt, prd_key`
 
-**`fact_sales`** — Transactions linked to both dimensions
+**`fact_sales`** - Transactions linked to both dimensions
 ```
 crm_sales_details  LEFT JOIN  dim_products  ON sls_prd_key = product_number
                    LEFT JOIN  dim_customers ON sls_cust_id  = customer_id
@@ -253,7 +255,7 @@ aws-data-pipeline/
 │
 ├── lambda/
 │   ├── trigger_pipeline.py       # Lambda: S3 event → Step Functions
-│   └── diagnostic_agent.py       # Lambda: AI agent — CloudWatch → Claude → SNS
+│   └── diagnostic_agent.py       # Lambda: AI agent - CloudWatch → Claude → SNS
 │
 ├── step_functions/
 │   └── pipeline_definition.json  # Step Functions state machine with agent routing
@@ -338,7 +340,7 @@ Create the state machine using `step_functions/pipeline_definition.json`. The st
 ## Running the Pipeline
 
 ### Automatic (event-driven)
-Upload any CSV file to the Bronze bucket — the Lambda trigger starts the full pipeline automatically:
+Upload any CSV file to the Bronze bucket - the Lambda trigger starts the full pipeline automatically:
 
 ```bash
 aws s3 cp new_data.csv s3://de-project-bronze-hyd-16/source_crm/cust_info.csv
@@ -377,7 +379,7 @@ ORDER BY total_sales DESC;
 
 ### 1. Regional Service Availability
 **Problem:** Redshift Serverless was not available in `ap-south-2` (Hyderabad), which was the intended Gold layer destination.  
-**Solution:** Replaced Redshift with an S3 + Glue Data Catalog + Athena architecture. This proved to be a more cost-effective and fully serverless approach — no cluster management, pay-per-query pricing with Athena.
+**Solution:** Replaced Redshift with an S3 + Glue Data Catalog + Athena architecture. This proved to be a more cost-effective and fully serverless approach - no cluster management, pay-per-query pricing with Athena.
 
 ### 2. IAM Permissions Complexity
 **Problem:** Six different AWS services (S3, Glue, Lambda, Step Functions, Athena, Glue Catalog) each require specific permissions, and cross-service trust policies are easy to misconfigure.  
@@ -399,13 +401,13 @@ ORDER BY total_sales DESC;
 **Problem:** The Step Functions execution role did not have `lambda:InvokeFunction` permission, causing the `InvokeDiagnosticAgent` state to fail immediately even though the Lambda function existed.  
 **Solution:** Added an inline IAM policy to the Step Functions role granting `lambda:InvokeFunction` on the diagnostic agent Lambda ARN specifically.
 
-### 7. Lambda Deployment — Windows vs Linux Binary Mismatch
-**Problem:** Installing `anthropic` on Windows and zipping for Lambda deployment caused a `pydantic_core` crash at runtime — the C extension was compiled for Windows, not Lambda's Linux environment.  
+### 7. Lambda Deployment - Windows vs Linux Binary Mismatch
+**Problem:** Installing `anthropic` on Windows and zipping for Lambda deployment caused a `pydantic_core` crash at runtime - the C extension was compiled for Windows, not Lambda's Linux environment.  
 **Solution:** Used `pip install anthropic --platform manylinux2014_x86_64 --only-binary=:all:` to force download of Linux-compatible pre-built wheels regardless of the host OS.
 
 ### 8. Bedrock Model Access Restrictions
 **Problem:** AWS Bedrock's newer Claude models (Haiku 4.5, Sonnet 4.6) require AWS Marketplace subscription with an international credit card. UPI (the account's payment method) is not accepted for Marketplace model subscriptions.  
-**Solution:** Switched to the direct Anthropic API using an API key stored as a Lambda environment variable (KMS encrypted). This bypasses Bedrock entirely — no Marketplace, no regional quotas, no card requirements.
+**Solution:** Switched to the direct Anthropic API using an API key stored as a Lambda environment variable (KMS encrypted). This bypasses Bedrock entirely - no Marketplace, no regional quotas, no card requirements.
 
 ---
 
