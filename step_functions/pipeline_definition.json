@@ -1,5 +1,5 @@
 {
-  "Comment": "DE Project Pipeline - Bronze to Silver to Gold",
+  "Comment": "DE Project Pipeline — Bronze to Silver to Gold with AI Diagnostic Agent on failure",
   "StartAt": "RunBronzeToSilver",
   "States": {
     "RunBronzeToSilver": {
@@ -12,7 +12,8 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "PipelineFailed"
+          "Next": "InvokeDiagnosticAgent",
+          "ResultPath": "$.pipeline_error"
         }
       ]
     },
@@ -26,7 +27,8 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
-          "Next": "PipelineFailed"
+          "Next": "InvokeDiagnosticAgent",
+          "ResultPath": "$.pipeline_error"
         }
       ]
     },
@@ -40,6 +42,26 @@
       "Catch": [
         {
           "ErrorEquals": ["States.ALL"],
+          "Next": "InvokeDiagnosticAgent",
+          "ResultPath": "$.pipeline_error"
+        }
+      ]
+    },
+    "InvokeDiagnosticAgent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:ap-south-2:518299481120:function:diagnostic-agent",
+        "Payload": {
+          "execution_arn.$": "$$.Execution.Id",
+          "pipeline_error.$": "$.pipeline_error"
+        }
+      },
+      "ResultPath": null,
+      "Next": "PipelineFailed",
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
           "Next": "PipelineFailed"
         }
       ]
@@ -50,7 +72,7 @@
     "PipelineFailed": {
       "Type": "Fail",
       "Error": "PipelineFailed",
-      "Cause": "One or more Glue jobs failed"
+      "Cause": "One or more Glue jobs failed — see SNS email for AI diagnosis"
     }
   }
 }

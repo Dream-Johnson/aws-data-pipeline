@@ -189,7 +189,10 @@ def transform_erp_cust_az12(df: pd.DataFrame) -> pd.DataFrame:
     - gen  : normalize  F/FEMALE → Female, M/MALE → Male, else n/a
     """
     df = df.copy()
-    df.columns = df.columns.str.lower()
+    # CONTROLLED BUG: df.columns = df.columns.str.lower() intentionally removed.
+    # CUST_AZ12.parquet has uppercase columns ['CID', 'BDATE', 'GEN'].
+    # Without this line, df["cid"] below raises KeyError: 'cid' — column is 'CID'.
+    # This failure triggers Step Functions Catch → InvokeDiagnosticAgent Lambda.
 
     df["cid"] = df["cid"].apply(
         lambda v: v[3:] if isinstance(v, str) and v.upper().startswith("NAS") else v
