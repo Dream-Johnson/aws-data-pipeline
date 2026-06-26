@@ -21,6 +21,10 @@ This project rebuilds a SQL Server Medallion Architecture data warehouse on AWS,
 
 ## Architecture
 
+### Step Functions State Machine
+
+![Step Functions Definition](images/step_functions_definition.png)
+
 ```
 ┌───────────────────────────────────────────────────────────────────── ┐
 │                        EVENT TRIGGER                                 │
@@ -97,6 +101,65 @@ CRM System                    ERP System
 
 ---
 
+## AI Diagnostic Agent
+
+An event-driven AI agent that activates automatically when any Glue job fails. It fetches the CloudWatch error logs, sends them to Claude (Anthropic API) for analysis, and delivers a plain-English diagnosis with a suggested fix directly to the engineer's inbox via SNS — reducing mean time to resolution from 20-30 minutes of manual log investigation to under 30 seconds.
+
+### How It Works
+
+```
+Glue job fails
+    → Step Functions Catch block fires
+    → Invokes diagnostic-agent Lambda
+        → Parses error from Step Functions event
+        → Fetches CloudWatch logs for the failed job run
+        → Sends logs + error to Claude via Anthropic API
+        → Claude returns root cause + fix in plain English
+        → SNS publishes diagnosis to engineer's email
+    → Step Functions marks execution as PipelineFailed
+```
+
+### Pipeline Failure — Agent Triggered
+
+**Step 1:** `RunBronzeToSilver` succeeds (green). `RunSilverTransform` hits a `KeyError: 'cid'` bug and fails (yellow). The Catch block routes execution to `InvokeDiagnosticAgent`.
+
+![Pipeline Failure](images/pipeline_failure.png)
+
+**Step 2:** The diagnostic agent Lambda runs successfully (green) — it fetched the CloudWatch logs, called Claude, and sent the email.
+
+![Agent Success](images/agent_success.png)
+
+### CloudWatch Logs — The Evidence Claude Read
+
+The actual Python traceback from `/aws-glue/python-jobs/error` — showing `KeyError: 'cid'` in `silver.erp_cust_az12`. This is what the agent fed to Claude.
+
+![CloudWatch Logs](images/cloudwatch_logs.png)
+
+### Email Notification — Diagnosis Delivered
+
+The SNS email arriving in the engineer's inbox within 30 seconds of the failure.
+
+![Email Notification](images/email_notification.png)
+
+### Full AI Diagnosis — Claude's Response
+
+Claude correctly identified the root cause: the ERP Parquet file has uppercase column names (`CID`) but the transform function expects lowercase (`cid`). It pointed to the exact table, suggested checking for case sensitivity, and confirmed the pipeline is safe to re-run after fixing the column normalisation.
+
+![AI Diagnosis Email](images/ai_diagnosis_email.png)
+
+### Agent Tech Stack
+
+| Component | Technology |
+|---|---|
+| Agent Lambda | Python 3.12, `anthropic` SDK |
+| LLM | Claude Haiku (Anthropic API) |
+| Log source | AWS CloudWatch (`/aws-glue/python-jobs/error`) |
+| Notification | Amazon SNS → email |
+| Auth | Lambda IAM role (least privilege) |
+| Secret management | Lambda environment variable (KMS encrypted) |
+
+---
+
 ## AWS Services
 
 | Service | Role |
@@ -106,8 +169,11 @@ CRM System                    ERP System
 | **AWS Glue Data Catalog** | Schema registry for Gold tables, enables Athena queries |
 | **Amazon Athena** | Serverless SQL queries directly on Gold Parquet files |
 | **AWS Step Functions** | Orchestrates the three Glue jobs in sequence |
-| **AWS Lambda** | Listens for S3 PUT events on Bronze bucket, starts Step Functions |
+| **AWS Lambda** | S3 event trigger + AI Diagnostic Agent |
+| **Amazon SNS** | Email delivery of AI diagnosis on pipeline failure |
+| **AWS CloudWatch** | Glue job log storage queried by the diagnostic agent |
 | **AWS IAM** | Role-based access control across all services |
+| **Anthropic API** | Claude Haiku LLM for log analysis and diagnosis |
 
 ---
 
@@ -186,15 +252,21 @@ aws-data-pipeline/
 │   └── silver_to_gold_s3.py      # Glue Job 3: build star schema + Glue Catalog
 │
 ├── lambda/
-│   └── trigger_pipeline.py       # Lambda: S3 event → Step Functions
+│   ├── trigger_pipeline.py       # Lambda: S3 event → Step Functions
+│   └── diagnostic_agent.py       # Lambda: AI agent — CloudWatch → Claude → SNS
 │
 ├── step_functions/
-│   └── pipeline_definition.json  # Step Functions state machine (ASL)
+│   └── pipeline_definition.json  # Step Functions state machine with agent routing
 │
-├── sql/
-│   ├── bronze_ddl.sql            # Original SQL Server Bronze DDL
-│   ├── silver_procedure.sql      # Original Silver stored procedure
-│   └── gold_views.sql            # Original Gold view definitions
+├── images/
+│   ├── step_functions_definition.png  # State machine architecture diagram
+│   ├── pipeline_failure.png           # Silver job failing, agent triggered
+│   ├── agent_success.png              # Agent completing successfully
+│   ├── cloudwatch_logs.png            # Actual error traceback in CloudWatch
+│   ├── email_notification.png         # SNS email arriving in inbox
+│   └── ai_diagnosis_email.png         # Full Claude diagnosis in email
+│
+├── scripts/                      # Original SQL Server scripts (reference)
 │
 └── README.md
 ```
@@ -322,6 +394,18 @@ ORDER BY total_sales DESC;
 ### 5. Cross-Region Architecture
 **Problem:** S3 buckets are in `ap-south-2` but Redshift (when tested) is available in `ap-south-1`, requiring cross-region data movement and additional COPY command configuration.  
 **Solution:** Kept all processing within `ap-south-2`. The `silver_to_gold.py` script (Redshift variant) includes the `REGION 'ap-south-2'` clause in COPY statements as a documented path for cross-region deployment.
+
+### 6. Step Functions Role Missing Lambda Permission
+**Problem:** The Step Functions execution role did not have `lambda:InvokeFunction` permission, causing the `InvokeDiagnosticAgent` state to fail immediately even though the Lambda function existed.  
+**Solution:** Added an inline IAM policy to the Step Functions role granting `lambda:InvokeFunction` on the diagnostic agent Lambda ARN specifically.
+
+### 7. Lambda Deployment — Windows vs Linux Binary Mismatch
+**Problem:** Installing `anthropic` on Windows and zipping for Lambda deployment caused a `pydantic_core` crash at runtime — the C extension was compiled for Windows, not Lambda's Linux environment.  
+**Solution:** Used `pip install anthropic --platform manylinux2014_x86_64 --only-binary=:all:` to force download of Linux-compatible pre-built wheels regardless of the host OS.
+
+### 8. Bedrock Model Access Restrictions
+**Problem:** AWS Bedrock's newer Claude models (Haiku 4.5, Sonnet 4.6) require AWS Marketplace subscription with an international credit card. UPI (the account's payment method) is not accepted for Marketplace model subscriptions.  
+**Solution:** Switched to the direct Anthropic API using an API key stored as a Lambda environment variable (KMS encrypted). This bypasses Bedrock entirely — no Marketplace, no regional quotas, no card requirements.
 
 ---
 
